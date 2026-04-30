@@ -42,6 +42,7 @@ class RiskManager:
         self.winning_trades = 0
         self.losing_trades = 0
         self.current_positions = 0
+        self.locked_capital = 0.0   # FIX: capital currently in open positions
         
         self.today = datetime.now().date()
         
@@ -64,29 +65,41 @@ class RiskManager:
             int: Number of shares to buy
         """
         try:
-            # Risk amount in rupees
+            # FIX: available capital = total minus what's locked in open positions
+            available_capital = self.total_capital - self.locked_capital
+
+            # FIX: each position slot gets an equal share of available capital
+            # This ensures 3 concurrent positions don't exceed total capital
+            capital_per_slot = available_capital / max(self.max_positions - self.current_positions, 1)
+
+            # Risk amount in rupees (2% of total, not just available)
             risk_amount = self.total_capital * self.risk_per_trade
-            
+
             # Risk per share
             risk_per_share = abs(entry_price - stop_loss)
-            
+
             if risk_per_share == 0:
                 logger.error("Stop loss equals entry price!")
                 return 0
-            
-            # Position size
+
+            # Position size from risk formula
             position_size = int(risk_amount / risk_per_share)
-            
-            # Ensure we don't exceed capital
-            max_affordable = int(self.total_capital / entry_price)
+
+            # FIX: cap to what's actually affordable in this slot
+            max_affordable = int(capital_per_slot / entry_price)
             position_size = min(position_size, max_affordable)
-            
+
+            actual_risk = position_size * risk_per_share
+            capital_used = position_size * entry_price
+
             logger.info(f"Position Size Calculation:")
+            logger.info(f"  Available Capital: ₹{available_capital:.0f} | Slot: ₹{capital_per_slot:.0f}")
             logger.info(f"  Risk Amount: ₹{risk_amount:.2f} ({self.risk_per_trade*100}%)")
             logger.info(f"  Risk/Share: ₹{risk_per_share:.2f}")
             logger.info(f"  Quantity: {position_size} shares")
-            logger.info(f"  Total Investment: ₹{position_size * entry_price:.2f}")
-            
+            logger.info(f"  Capital Used: ₹{capital_used:.2f} ({capital_used/self.total_capital*100:.1f}%)")
+            logger.info(f"  Actual Risk: ₹{actual_risk:.2f} ({actual_risk/self.total_capital*100:.2f}%)")
+
             return position_size
             
         except Exception as e:
@@ -165,16 +178,18 @@ class RiskManager:
         except Exception as e:
             logger.error(f"Error recording trade: {e}")
     
-    def position_opened(self):
-        """Increment position counter"""
+    def position_opened(self, capital_used=0):
+        """Increment position counter and lock capital"""
         self.current_positions += 1
-        logger.info(f"Position opened. Current: {self.current_positions}/{self.max_positions}")
+        self.locked_capital += capital_used
+        logger.info(f"Position opened. Current: {self.current_positions}/{self.max_positions} | Locked: ₹{self.locked_capital:.0f}")
     
-    def position_closed(self):
-        """Decrement position counter"""
+    def position_closed(self, capital_released=0):
+        """Decrement position counter and release capital"""
         if self.current_positions > 0:
             self.current_positions -= 1
-            logger.info(f"Position closed. Current: {self.current_positions}/{self.max_positions}")
+        self.locked_capital = max(0, self.locked_capital - capital_released)
+        logger.info(f"Position closed. Current: {self.current_positions}/{self.max_positions} | Locked: ₹{self.locked_capital:.0f}")
     
     def get_stats(self):
         """Get current statistics"""

@@ -10,6 +10,8 @@ BEYOND-HUMAN TRADING BOT v3.0
 
 import time
 import os
+import sys
+import io
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import logging
@@ -24,13 +26,22 @@ from stocks_config import ALL_SYMBOLS
 
 load_dotenv()
 
+# Build a UTF-8 console stream — fixes UnicodeEncodeError on Windows cp1252 terminals
+# StreamHandler() with no args uses sys.stderr which Windows locks to cp1252.
+# Instead we wrap sys.stderr.buffer directly with UTF-8 encoding + 'replace' fallback.
+if hasattr(sys.stderr, 'buffer'):
+    _console_stream = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+else:
+    _console_stream = sys.stderr  # non-Windows fallback (already UTF-8)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('trading_bot.log'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler('trading_bot.log', encoding='utf-8'),
+        logging.StreamHandler(_console_stream)
+    ],
+    force=True  # override any basicConfig calls from imported modules
 )
 logger = logging.getLogger(__name__)
 
@@ -285,11 +296,12 @@ class TradingBot:
                 }
                 
                 self.active_trades[symbol] = position_data
-                
+
                 # Save to database for persistence!
                 self.db.save_active_position(symbol, position_data)
-                
-                self.risk_manager.position_opened()
+
+                # Pass actual capital so locked_capital tracking works correctly
+                self.risk_manager.position_opened(capital_used=quantity * entry_price)
                 
                 logger.info(f"✅ Trade executed! Trade ID: {trade_id}")
                 logger.info(f"   Breakeven: ₹{breakeven_trigger:.2f}")
@@ -583,13 +595,7 @@ def main():
     bot = TradingBot(
         capital=100000,
         paper_trading=True,
-        symbols=[
-            'NSE:SBIN-EQ',
-            'NSE:RELIANCE-EQ',
-            'NSE:INFY-EQ',
-            'NSE:HDFCBANK-EQ',
-            'NSE:ICICIBANK-EQ'
-        ]
+        # symbols loaded from stocks_config.py (150 stocks across 18 sectors)
     )
     
     bot.run()

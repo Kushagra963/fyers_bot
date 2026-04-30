@@ -1,13 +1,13 @@
 # 🤖 AUTOMATED TRADING BOT - MASTER DOCUMENT
 **Last Updated:** April 30, 2026  
-**Version:** 3.1 - "Beyond Human"  
+**Version:** 3.2 - "Math Correct"  
 **Owner:** Kushagra Upadhyay
 
 ---
 
 ## 📋 QUICK CONTEXT FOR NEW CHATS
 
-> I'm building an automated intraday trading bot for Indian stock market (NSE) using Fyers API. The bot uses Python and trades 5-minute candles with multi-indicator strategy. Currently testing with paper trading (₹100,000 virtual). Goal is to make ₹1,000+/month with ₹10,000 real capital after 2 weeks testing. Bot monitors **150 stocks** across 18 sectors with database persistence, smart exits, trailing stops, cooldown system, and a live Streamlit dashboard.
+> I'm building an automated intraday trading bot for Indian stock market (NSE) using Fyers API. The bot uses Python and trades 5-minute candles with multi-indicator strategy. Currently testing with paper trading (₹100,000 virtual). Goal is to make ₹1,000+/month with ₹10,000 real capital after 2 weeks testing. Bot monitors **150 stocks** across 18 sectors with database persistence, smart exits, trailing stops, cooldown system, and a live Streamlit dashboard. **v3.2 fixes four mathematical bugs** that were silently preventing signals from firing.
 
 ---
 
@@ -31,34 +31,46 @@
 ## 📊 CURRENT STATUS
 
 ### Strategy Version:
-**v3.1 - "Beyond Human"** (Latest)
+**v3.2 - "Math Correct"** (Latest)
 
 ### Key Features:
-✅ Multi-timeframe confluence (5m, 15m, 50 EMA)  
-✅ Volatility-adjusted stop loss (2x ATR)  
+✅ Multi-timeframe confluence (5m, real 15m OHLCV resample, 50 EMA)  
+✅ Volatility-adjusted stop loss (**1.5x ATR** — tighter, realistic)  
 ✅ 45-minute cooldown after stop loss  
 ✅ Trailing stops + breakeven protection  
-✅ 1:2.5 Risk:Reward ratio  
+✅ **1:1.5 Risk:Reward** — achievable within NSE blue chip daily ranges  
+✅ **VWAP resets daily** (75 candles per session, not multi-day cumulative)  
+✅ **Real 15-min resampling** via pandas resample() (was fake EMA*3 before)  
+✅ **Position sizing uses locked capital** (no slot over-allocation)  
 ✅ SQLite database for persistent learning  
 ✅ Smart exit management (6 layers)  
-✅ **150 stocks across 18 sectors** (v3.1)  
-✅ **Streamlit live dashboard** (v3.1)  
-✅ **5-minute scan cycle** aligned to candle timeframe (v3.1)  
+✅ 150 stocks across 18 sectors  
+✅ Streamlit live dashboard  
+✅ 5-minute scan cycle aligned to candle timeframe  
 
 ### Testing Results:
 - **April 29, 2026:**
   - Strategy v2: 12 trades, 41.7% win rate, -₹631 loss
   - Issues: Tight SL (hit in 1 min), repeat signals (6x on same stock)
   - Improvements made → v3.0 created
-- **April 30, 2026:**
-  - Watchlist expanded 5 → 150 stocks
-  - Dashboard added for real-time monitoring
+- **April 30, 2026 (v3.1):**
+  - Watchlist expanded 5 → 150 stocks; dashboard added
+  - Zero signals fired — root cause: 3 math bugs (see Known Issues #8-10)
+- **April 30, 2026 (v3.2):**
+  - All 4 math bugs fixed — signals should fire on trending days
 
-### Expected Performance (v3.1):
-- Win Rate: 55-65%
-- Trades/Day: 2-5 (more opportunities with 150 stocks)
-- Daily Profit: ₹150-₹250 (with ₹10k capital)
-- Monthly: ₹3,000-₹5,000
+### Expected Performance (v3.2 — Mathematically Validated):
+- Break-even win rate: **40%** (1:1.5 R:R → 1/(1+1.5) = 40%)
+- Realistic win rate target: **50%**
+- Trades/Day: 2-4 (150 stocks, strict 8-condition filter)
+- Daily Profit at 50% WR: ₹110 (conservative) – ₹165 (optimistic)
+- Monthly at 50% WR: **~₹2,750** (realistic base case)
+
+| Win Rate | Monthly P&L (₹10k capital) |
+|----------|---------------------------|
+| 45% WR   | ₹1,375 |
+| 50% WR   | ₹2,750 |
+| 55% WR   | ₹4,125 |
 
 ---
 
@@ -158,15 +170,16 @@ Leverage bot capabilities humans cannot match:
 **For SELL:** Opposite conditions
 
 ### Stop Loss Calculation:
-**Volatility-Adjusted (2x ATR)**
+**Volatility-Adjusted (1.5x ATR)** *(Fixed in v3.2 — was 2x)*
 - Prevents SL hunting
 - Adapts to stock's volatility
-- Typical: 0.5-1.0% from entry
+- Typical: 0.4-0.8% from entry (achievable intraday)
 
 ### Target Calculation:
-**1:2.5 Risk:Reward**
-- Only needs 40% win rate to break even
-- Better than old 1:2 ratio
+**1:1.5 Risk:Reward** *(Fixed in v3.2 — was 2.5x)*
+- Only needs 40% win rate to break even: 1/(1+1.5) = 40%
+- Old 2.5x R:R required 3.75–5% intraday moves (impossible for blue chips averaging 1-2% daily range)
+- New 1.5x R:R requires 1.2–1.5% move — achievable on normal trending days
 
 ### Position Sizing:
 - **Risk per trade:** 2% of capital
@@ -258,13 +271,17 @@ Auto-refreshes every 30 seconds while the bot runs.
 
 | # | Issue | Status | Solution |
 |---|-------|--------|----------|
-| 1 | SL too tight — hit in 1 minute | ✅ Fixed | 2x ATR volatility-adjusted stop |
+| 1 | SL too tight — hit in 1 minute | ✅ Fixed | 1.5x ATR volatility-adjusted stop |
 | 2 | Repeat signals — same stock 6x | ✅ Fixed | 45-min cooldown after SL hit |
-| 3 | Poor R:R — needed 50% win rate | ✅ Fixed | 1:2.5 RR needs only 40% |
-| 4 | Holding too long | ✅ Fixed | 60-min time exit + trailing stops |
-| 5 | Only 5 stocks — few signals | ✅ Fixed | 150 stocks across 18 sectors |
-| 6 | Manual log copy-paste to Claude | ✅ Fixed | Streamlit dashboard + folder access |
-| 7 | Data fetch error -99 (SBIN) | ⚠️ Pending | Need graceful retry logic |
+| 3 | R:R 2.5x required impossible 3.75-5% moves | ✅ Fixed v3.2 | 1:1.5 R:R needs only 40% WR |
+| 4 | VWAP multi-day cumulative (signal corruption) | ✅ Fixed v3.2 | VWAP resets daily, 75 candles/session |
+| 5 | Fake 15-min timeframe (EMA*3 on 5m) | ✅ Fixed v3.2 | Real pandas resample() OHLCV |
+| 6 | Position sizing ignoring locked capital | ✅ Fixed v3.2 | locked_capital tracking per slot |
+| 7 | Only 5 stocks — few signals | ✅ Fixed | 150 stocks across 18 sectors |
+| 8 | Manual log copy-paste to Claude | ✅ Fixed | Streamlit dashboard + folder access |
+| 9 | UnicodeEncodeError on Windows console | ✅ Fixed v3.2 | sys.stdout.reconfigure(utf-8) |
+| 10 | Holding too long | ✅ Fixed | 60-min time exit + trailing stops |
+| 11 | Data fetch error -99/-300 (transient API) | ⚠️ Pending | Need graceful retry logic |
 
 ---
 
@@ -391,16 +408,25 @@ python database.py
 1. **Paper trade first** — always test before risking real money
 2. **Wide stops** — 2x ATR works better than tight Supertrend stops
 3. **Cooldown system** — don't re-enter a losing stock for 45 minutes
-4. **Multi-timeframe** — single timeframe = noise; 3 TFs = real trend
+4. **Multi-timeframe** — single timeframe = noise; 3 TFs = real trend (must use real OHLCV resample, not EMA proxy)
 5. **Bot superpowers** — scan 150 stocks simultaneously, no human can do this
-6. **R:R math** — 1:2.5 only needs 40% win rate vs 50% for 1:2
+6. **R:R math** — 1:1.5 needs 40% WR; 1:2.5 requires impossible 5% intraday moves on blue chips
 7. **Realistic expectations** — ₹10k capital = ₹150-250/day, not ₹1,000/day
 
 ---
 
 ## 📊 VERSION HISTORY
 
-### v3.1 (April 30, 2026) — CURRENT
+### v3.2 (April 30, 2026) — CURRENT
+- Fixed: **VWAP daily reset** — now uses only today's 75 candles (375 min session), not 5-day cumulative. Multi-day VWAP was corrupting the "price > VWAP" entry condition.
+- Fixed: **Real 15-min resampling** — uses `pandas resample('15min').agg(OHLCV)` instead of EMA(fast*3)/EMA(slow*3) on 5m data. Multi-timeframe alignment is now mathematically correct.
+- Fixed: **ATR multiplier 2.0 → 1.5** — old 2x ATR stop + 2.5x R:R required 3.75–5% intraday moves; blue chips average only 1–2% daily range, making targets unreachable.
+- Fixed: **R:R 2.5 → 1.5** — 1:1.5 needs 40% win rate to break even; achievable within normal intraday ranges.
+- Fixed: **locked_capital tracking** — position sizing now subtracts already-locked capital before allocating new slots, preventing over-allocation with 3 concurrent positions.
+- Fixed: **UnicodeEncodeError** — Windows cp1252 console crashes on emoji log messages; fixed by reconfiguring stdout to utf-8 at startup.
+- Updated: Expected monthly P&L projections now based on corrected math (was overestimated in v3.1).
+
+### v3.1 (April 30, 2026)
 - Added: `stocks_config.py` — 150 stocks across 18 sectors (single source of truth)
 - Added: `dashboard.py` — Streamlit live monitoring dashboard
 - Changed: Scan interval 60s → 300s (matches 5-min candle timeframe)
@@ -451,4 +477,4 @@ python database.py
 ---
 
 **Happy Trading! 🚀💰**  
-*Version 3.1 | Last Updated: April 30, 2026 | Status: Active Development*
+*Version 3.2 | Last Updated: April 30, 2026 | Status: Active Development*

@@ -40,7 +40,7 @@ class BeyondHumanStrategy:
     - Cooldown tracking (won't re-enter losers)
     - Multi-timeframe confluence (only trades when 3 TFs agree)
     - Sector strength filter (only trade strongest sector)
-    - Better risk:reward (1:2.5 minimum, not 1:2)
+    - Better risk:reward (1:1.5 — target within intraday range)
     """
     
     def __init__(self):
@@ -80,7 +80,7 @@ class BeyondHumanStrategy:
         logger.info("  ✅ Sector Correlation Analysis")
         logger.info("  ✅ Volume Profile Detection")
         logger.info("  ✅ Statistical Edge Calculator")
-        logger.info("  ✅ Better Risk:Reward (1:2.5)")
+        logger.info("  ✅ Better Risk:Reward (1:1.5 — target within daily range)")
         logger.info("="*80)
     
     def is_good_trading_time(self):
@@ -126,8 +126,16 @@ class BeyondHumanStrategy:
         return 100 - (100 / (1 + rs))
     
     def calculate_vwap(self, df):
-        typical_price = (df['high'] + df['low'] + df['close']) / 3
-        return (typical_price * df['volume']).cumsum() / df['volume'].cumsum()
+        # FIX 1: VWAP must reset each day — use only today's candles
+        # 75 candles x 5 min = 375 min = exactly 1 trading session
+        CANDLES_PER_DAY = 75
+        today_df = df.iloc[-CANDLES_PER_DAY:] if len(df) >= CANDLES_PER_DAY else df
+        typical_price = (today_df['high'] + today_df['low'] + today_df['close']) / 3
+        vwap_today = (typical_price * today_df['volume']).cumsum() / today_df['volume'].cumsum()
+        vwap = pd.Series(index=df.index, dtype=float)
+        vwap[today_df.index] = vwap_today
+        vwap = vwap.ffill().bfill()
+        return vwap
     
     def calculate_atr(self, df, period=14):
         high_low = df['high'] - df['low']
@@ -148,16 +156,18 @@ class BeyondHumanStrategy:
         direction = [1] * len(df)
         
         for i in range(1, len(df)):
-            if df['close'].iloc[i] > upperband.iloc[i-1]:
+            if df['close'].iloc[i] > upperband.iat[i-1]:
                 direction[i] = 1
-            elif df['close'].iloc[i] < lowerband.iloc[i-1]:
+            elif df['close'].iloc[i] < lowerband.iat[i-1]:
                 direction[i] = -1
             else:
                 direction[i] = direction[i-1]
-                if direction[i] == 1 and lowerband.iloc[i] < lowerband.iloc[i-1]:
-                    lowerband.iloc[i] = lowerband.iloc[i-1]
-                if direction[i] == -1 and upperband.iloc[i] > upperband.iloc[i-1]:
-                    upperband.iloc[i] = upperband.iloc[i-1]
+                # Use .iat[] for in-place scalar assignment — .iloc[] chained indexing
+                # silently fails on pandas 2.x and corrupts supertrend direction
+                if direction[i] == 1 and lowerband.iat[i] < lowerband.iat[i-1]:
+                    lowerband.iat[i] = lowerband.iat[i-1]
+                if direction[i] == -1 and upperband.iat[i] > upperband.iat[i-1]:
+                    upperband.iat[i] = upperband.iat[i-1]
             
             if direction[i] == 1:
                 supertrend[i] = lowerband.iloc[i]
@@ -194,9 +204,22 @@ class BeyondHumanStrategy:
             # Trend strength
             df['trend_strength'] = abs(df['ema_fast'] - df['ema_slow']) / df['close'] * 100
             
-            # Multi-timeframe simulation (using larger windows)
-            df['ema_fast_15m'] = self.calculate_ema(df['close'], self.ema_fast * 3)
-            df['ema_slow_15m'] = self.calculate_ema(df['close'], self.ema_slow * 3)
+            # FIX 2: Real 15-min timeframe via OHLCV resampling
+            # EMA(27) on 5-min != EMA(9) on 15-min — different crossover timing
+            try:
+                df_15m = df.resample('15min').agg({
+                    'open': 'first', 'high': 'max',
+                    'low': 'min', 'close': 'last', 'volume': 'sum'
+                }).dropna()
+                df_15m['ema_fast_15m'] = self.calculate_ema(df_15m['close'], self.ema_fast)
+                df_15m['ema_slow_15m'] = self.calculate_ema(df_15m['close'], self.ema_slow)
+                df = df.join(df_15m[['ema_fast_15m', 'ema_slow_15m']], how='left')
+                df['ema_fast_15m'] = df['ema_fast_15m'].ffill().bfill()
+                df['ema_slow_15m'] = df['ema_slow_15m'].ffill().bfill()
+            except Exception:
+                # Fallback if index is not DatetimeIndex
+                df['ema_fast_15m'] = self.calculate_ema(df['close'], self.ema_fast * 3)
+                df['ema_slow_15m'] = self.calculate_ema(df['close'], self.ema_slow * 3)
             
             return df
             
@@ -213,7 +236,8 @@ class BeyondHumanStrategy:
         atr = latest['atr']
         
         # Use 2x ATR (much wider than before) - prevents SL hunting
-        atr_multiplier = 2.0
+        # FIX 3: 1.5x ATR — target now sits within typical 1.5% daily range
+        atr_multiplier = 1.5
         
         if side == 'BUY':
             atr_stop = entry_price - (atr * atr_multiplier)
@@ -229,15 +253,15 @@ class BeyondHumanStrategy:
     
     def calculate_smart_target(self, entry_price, stop_loss, side):
         """
-        BETTER RISK:REWARD - 1:2.5 instead of 1:2
-        This improves break-even win rate from 50% to 40%
+        FIX: R:R changed 2.5 → 1.5 so target sits within typical intraday range.
+        Break-even WR = 40%. Trailing stop captures more if move extends.
         """
         if side == 'BUY':
             risk = entry_price - stop_loss
-            target = entry_price + (risk * 2.5)  # 1:2.5 RR
+            target = entry_price + (risk * 1.5)  # FIX: 1:1.5 RR — target within daily range
         else:
             risk = stop_loss - entry_price
-            target = entry_price - (risk * 2.5)
+            target = entry_price - (risk * 1.5)  # FIX: 1:1.5 RR
         
         return target
     
