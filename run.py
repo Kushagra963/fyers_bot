@@ -20,6 +20,7 @@ from strategy import BeyondHumanStrategy
 from orders import OrderManager
 from risk_manager import RiskManager
 from database import TradingDatabase
+from stocks_config import ALL_SYMBOLS
 
 load_dotenv()
 
@@ -40,13 +41,7 @@ class TradingBot:
     def __init__(self, capital=100000, paper_trading=True, symbols=None):
         self.capital = capital
         self.paper_trading = paper_trading
-        self.symbols = symbols or [
-            'NSE:SBIN-EQ',
-            'NSE:RELIANCE-EQ',
-            'NSE:INFY-EQ',
-            'NSE:HDFCBANK-EQ',
-            'NSE:ICICIBANK-EQ'
-        ]
+        self.symbols = symbols or ALL_SYMBOLS
         
         self.running = False
         self.auth = None
@@ -477,7 +472,7 @@ class TradingBot:
             return
         
         self.running = True
-        scan_interval = 60
+        scan_interval = 300  # 5 minutes — matches 5-min candle timeframe; 150 stocks × 0.5s ≈ 75s per scan
         last_scan = datetime.now() - timedelta(seconds=scan_interval)
         
         try:

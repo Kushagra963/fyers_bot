@@ -22,6 +22,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, time, timedelta
 import logging
+from stocks_config import SECTORS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,14 +67,8 @@ class BeyondHumanStrategy:
         # SIGNAL HISTORY (for pattern learning)
         self.recent_signals = {}  # symbol -> list of recent signals
         
-        # SECTOR CORRELATION (Bot superpower!)
-        self.sectors = {
-            'BANKING': ['NSE:SBIN-EQ', 'NSE:HDFCBANK-EQ', 'NSE:ICICIBANK-EQ', 
-                       'NSE:KOTAKBANK-EQ', 'NSE:AXISBANK-EQ'],
-            'IT': ['NSE:INFY-EQ', 'NSE:TCS-EQ', 'NSE:WIPRO-EQ', 'NSE:TECHM-EQ'],
-            'OIL_GAS': ['NSE:RELIANCE-EQ', 'NSE:ONGC-EQ', 'NSE:IOC-EQ'],
-            'AUTO': ['NSE:TATAMOTORS-EQ', 'NSE:M&M-EQ', 'NSE:MARUTI-EQ']
-        }
+        # SECTOR CORRELATION (Bot superpower!) — loaded from stocks_config.py
+        self.sectors = SECTORS
         
         logger.info("="*80)
         logger.info("🤖 BEYOND-HUMAN STRATEGY INITIALIZED")
