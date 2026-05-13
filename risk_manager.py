@@ -166,8 +166,10 @@ class RiskManager:
                 self.losing_trades += 1
                 logger.info(f"❌ LOSS: ₹{pnl:.2f}")
             
-            # Update position count
+            # Update position count and release locked capital
             self.current_positions -= 1
+            capital_released = entry_price * quantity
+            self.locked_capital = max(0.0, self.locked_capital - capital_released)
             
             logger.info(f"Updated Stats:")
             logger.info(f"  Today's P&L: ₹{self.daily_pnl:.2f}")

@@ -30,7 +30,7 @@ SECTORS = {
         'NSE:WIPRO-EQ',
         'NSE:HCLTECH-EQ',
         'NSE:TECHM-EQ',
-        'NSE:LTIM-EQ',
+        # 'NSE:LTIMINDTREE-EQ',  # TODO: verify correct Fyers symbol — returns -300
         'NSE:MPHASIS-EQ',
         'NSE:PERSISTENT-EQ',
         'NSE:COFORGE-EQ',
@@ -50,7 +50,7 @@ SECTORS = {
     ],
 
     'AUTO': [
-        'NSE:TATAMOTORS-EQ',
+        # 'NSE:TATAMOTORS-EQ',  # TODO: verify correct Fyers symbol — returns -300
         'NSE:MARUTI-EQ',
         'NSE:M&M-EQ',
         'NSE:BAJAJ-AUTO-EQ',
@@ -195,7 +195,7 @@ SECTORS = {
         'NSE:TRENT-EQ',
         'NSE:NAUKRI-EQ',
         'NSE:PAGEIND-EQ',
-        'NSE:ZOMATO-EQ',
+        'NSE:ETERNAL-EQ',    # Zomato rebranded to Eternal Limited in 2025
         'NSE:IRCTC-EQ',
         'NSE:INDHOTEL-EQ',
         'NSE:JUBLFOOD-EQ',

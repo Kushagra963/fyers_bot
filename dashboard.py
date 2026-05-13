@@ -46,8 +46,13 @@ def get_scalar(query, params=()):
     return row[0] if row and row[0] is not None else 0
 
 def color_pnl(val):
-    color = "green" if val > 0 else ("red" if val < 0 else "gray")
-    return f"color: {color}; font-weight: bold"
+    try:
+        if val is None or (hasattr(val, '__float__') and pd.isna(val)):
+            return "color: gray"
+        color = "green" if float(val) > 0 else ("red" if float(val) < 0 else "gray")
+        return f"color: {color}; font-weight: bold"
+    except (TypeError, ValueError):
+        return "color: gray"
 
 def tail_log(path, n=200):
     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -146,7 +151,7 @@ if page == "Overview":
     with col_l:
         st.subheader("📅 Daily P&L")
         if not ds.empty:
-            colors = ["#00C853" if v >= 0 else "#FF1744" for v in ds["total_pnl"]]
+            colors = ["#00C853" if (v is not None and not pd.isna(v) and v >= 0) else "#FF1744" for v in ds["total_pnl"]]
             fig2 = go.Figure(go.Bar(
                 x=ds["date"], y=ds["total_pnl"],
                 marker_color=colors, name="Daily P&L"
@@ -183,7 +188,7 @@ if page == "Overview":
     )
     if not recent.empty:
         st.dataframe(
-            recent.style.applymap(color_pnl, subset=["pnl", "pnl_percent"]),
+            recent.style.map(color_pnl, subset=["pnl", "pnl_percent"]),
             use_container_width=True, hide_index=True
         )
     else:
@@ -224,7 +229,7 @@ elif page == "Trade History":
 
         display_cols = ["symbol","side","entry_price","exit_price","quantity","pnl","pnl_percent","exit_reason","entry_time","exit_time"]
         st.dataframe(
-            df[display_cols].style.applymap(color_pnl, subset=["pnl","pnl_percent"]),
+            df[display_cols].style.map(color_pnl, subset=["pnl","pnl_percent"]),
             use_container_width=True, hide_index=True
         )
 
@@ -232,7 +237,7 @@ elif page == "Trade History":
         pie_col, scatter_col = st.columns(2)
         with pie_col:
             st.subheader("Win / Loss split")
-            pie_data = df["pnl"].apply(lambda x: "Win" if x > 0 else "Loss")
+            pie_data = df["pnl"].apply(lambda x: "Win" if (x is not None and not pd.isna(x) and x > 0) else "Loss")
             counts = pie_data.value_counts()
             fig = px.pie(values=counts.values, names=counts.index,
                          color=counts.index,
@@ -245,7 +250,7 @@ elif page == "Trade History":
             fig2 = go.Figure(go.Bar(
                 x=list(range(len(df))),
                 y=df["pnl"].tolist(),
-                marker_color=["#00C853" if v >= 0 else "#FF1744" for v in df["pnl"]],
+                marker_color=["#00C853" if (v is not None and not pd.isna(v) and v >= 0) else "#FF1744" for v in df["pnl"]],
             ))
             fig2.update_layout(height=280, paper_bgcolor="rgba(0,0,0,0)",
                                plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#ccc"))
@@ -269,7 +274,7 @@ elif page == "Symbol Performance":
         b3.metric("Stocks Tracked",  len(sp))
 
         st.dataframe(
-            sp.style.applymap(color_pnl, subset=["total_pnl","avg_win","avg_loss"]),
+            sp.style.map(color_pnl, subset=["total_pnl","avg_win","avg_loss"]),
             use_container_width=True, hide_index=True
         )
 
