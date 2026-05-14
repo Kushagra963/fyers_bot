@@ -75,6 +75,11 @@ class TradingBot:
         self.risk_manager  = None
         self.db            = None
 
+        # Late-start guard: if bot boots after 10:00 AM, skip trade execution on
+        # the very first scan cycle to avoid "catch-up burst" — stale signals
+        # piling up that all fire simultaneously and hit stop losses immediately.
+        self._first_scan_done = False
+
         # ── Advanced data structures ────────────────────────────────────────
         # RLock: parallel scan workers read active_trades; main thread writes it.
         # RLock (re-entrant) allows the same thread to acquire it multiple times
@@ -407,11 +412,13 @@ class TradingBot:
             )
             
             if order and order['status'] in ['EXECUTED', 'PLACED']:
-                # Save to database
+                # Save to database (include PA type + score for analytics)
                 trade_id = self.db.save_trade(
                     symbol=symbol, side=side, quantity=quantity,
                     entry_price=entry_price, stop_loss=stop_loss, target=target,
-                    paper_trading=self.paper_trading
+                    paper_trading=self.paper_trading,
+                    price_action_type=signal.get('price_action_type'),
+                    score=signal.get('score'),
                 )
                 
                 # Calculate exit triggers
@@ -591,19 +598,26 @@ class TradingBot:
                             f"SL moved to breakeven ₹{trade['entry_price']:.2f}"
                         )
 
-                # 4. Giveback protection — simplified: 40% drawdown from peak
-                if trade['max_profit'] > 100:
+                # 4. Giveback protection — tiered drawdown from peak
+                #    Rules:
+                #      - Min profit ₹150 before activating (ignore tiny moves)
+                #      - 20-min minimum hold (avoid cutting fresh trades that just dipped)
+                #      - Allow 50% drawdown in first 60 min (let winners breathe)
+                #      - Tighten to 30% after 60 min (protect locked-in gains near EOD)
+                holding_time = (datetime.now() - trade['entry_time']).seconds / 60
+                if trade['max_profit'] > 150 and holding_time >= 20:
                     giveback_pct = (trade['max_profit'] - pnl) / trade['max_profit']
-                    if giveback_pct > 0.4:
+                    threshold = 0.30 if holding_time > 60 else 0.50
+                    if giveback_pct > threshold:
                         logger.info(
                             f"  ⚠️  Giveback exit | {giveback_pct*100:.0f}% drawdown from "
-                            f"peak ₹{trade['max_profit']:.2f} | current P&L ₹{pnl:.2f}"
+                            f"peak ₹{trade['max_profit']:.2f} | current P&L ₹{pnl:.2f} "
+                            f"| hold={holding_time:.0f}min threshold={threshold*100:.0f}%"
                         )
                         self.close_position(symbol, current_price, 'PROFIT_GIVEBACK')
                         continue
 
                 # 5. Time Exit — 90 min regardless of P&L (frees slots for better signals)
-                holding_time = (datetime.now() - trade['entry_time']).seconds / 60
                 if holding_time > 90:
                     logger.info(f"  🕐 Time exit ({holding_time:.0f} min | P&L ₹{pnl:.2f})")
                     self.close_position(symbol, current_price, 'TIME_EXIT')
@@ -689,14 +703,27 @@ class TradingBot:
                         signals = self.scan_for_signals()   # already sorted by strength
                         last_scan = datetime.now()
 
-                        # Execute signals strongest-first (heapq sorted them).
-                        # Stop early if risk_manager says no more capacity.
-                        for signal in signals:
-                            can_trade, _ = self.risk_manager.can_take_trade()
-                            if not can_trade:
-                                logger.info("⛔ Max positions reached — skipping remaining signals")
-                                break
-                            self.execute_signal(signal)
+                        # Late-start burst guard: if first scan fires after 10:00 AM,
+                        # skip execution this cycle — signals may be stale catch-ups.
+                        now = datetime.now()
+                        late_start = not self._first_scan_done and now.hour >= 10
+                        self._first_scan_done = True
+
+                        if late_start and signals:
+                            logger.info(
+                                f"⏩ LATE START ({now.strftime('%H:%M')}) — skipping "
+                                f"{len(signals)} signal(s) on first scan to avoid burst entries. "
+                                f"Normal trading resumes next cycle."
+                            )
+                        else:
+                            # Execute signals strongest-first (heapq sorted them).
+                            # Stop early if risk_manager says no more capacity.
+                            for signal in signals:
+                                can_trade, _ = self.risk_manager.can_take_trade()
+                                if not can_trade:
+                                    logger.info("⛔ Max positions reached — skipping remaining signals")
+                                    break
+                                self.execute_signal(signal)
 
                     self.monitor_positions()
 
@@ -764,12 +791,12 @@ class TradingBot:
             if best_symbols:
                 print("\n🏆 BEST PERFORMING SYMBOLS:")
                 for s in best_symbols[:5]:
-                    print(f"  {s['symbol']:<20} {s['win_rate']:.0f}% win | ₹{s['total_pnl']:.2f}")
+                    print(f"  {s['symbol']:<25} {s['win_rate']:.0f}% win | ₹{s['avg_pnl']:.2f}")
 
-            best_sectors = self.db.get_best_sectors(min_trades=1)
-            if best_sectors:
+            sector_stats = self.db.get_sector_performance()
+            if sector_stats:
                 print("\n📡 SECTOR PERFORMANCE:")
-                for s in best_sectors[:5]:
+                for s in sector_stats[:5]:
                     print(f"  {s['sector']:<20} {s['total_trades']} trades | "
                           f"{s['win_rate']:.0f}% win | ₹{s['total_pnl']:.2f}")
 
@@ -785,16 +812,21 @@ class TradingBot:
 
 def main():
     print("\n" + "="*80)
-    print("🤖 BEYOND-HUMAN TRADING BOT v4.0")
+    print("🤖 BEYOND-HUMAN TRADING BOT v4.2")
     print("="*80)
     print("\nFeatures:")
     print("  ✅ Persistent state (SQLite — WAL, thread-local connections)")
     print("  ✅ Multi-timeframe analysis (5m + real 15m resample)")
-    print("  ✅ Wilder's RSI & ATR (matches TradingView/Zerodha)")
+    print("  ✅ Wilder\'s RSI & ATR (matches TradingView/Zerodha)")
     print("  ✅ Sliding window stop loss (ATR-trail, continuous)")
     print("  ✅ 45-min cooldown + O(1) in-memory cache")
-    print("  ✅ Parallel scanning (ThreadPoolExecutor ×10, ~8s)")
+    print("  ✅ Parallel scanning (ThreadPoolExecutor ×8, ~17s)")
     print("  ✅ heapq signal priority | deque price history | defaultdict sectors")
+    print("  ✅ PA hard gate + weighted scoring (v4.1)")
+    print("  ✅ Nifty market filter (v4.1)")
+    print("  ✅ Breakout threshold 6.5 (v4.2)")
+    print("  ✅ Tiered giveback protection (v4.2)")
+    print("  ✅ Late-start burst guard (v4.2)")
     print("\nMode: PAPER TRADING 📝")
     print("Capital: ₹100,000")
     print("="*80 + "\n")

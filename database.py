@@ -65,6 +65,7 @@ class TradingDatabase:
 
         # Create schema on the main-thread connection
         self._create_schema()
+        self._migrate_schema()
         logger.info(f"✅ Database ready: {db_path} | WAL mode | thread-local connections")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -125,6 +126,8 @@ class TradingDatabase:
                 status           TEXT    DEFAULT 'OPEN',
                 strategy_version TEXT,
                 paper_trading    BOOLEAN DEFAULT 1,
+                price_action_type TEXT,
+                score            REAL,
                 created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -268,6 +271,21 @@ class TradingDatabase:
         self.conn.commit()
         logger.info("Schema verified: all tables + indexes ready")
 
+    def _migrate_schema(self):
+        """Add new columns to existing tables if they don't exist yet (safe on re-run)."""
+        cur = self.conn.cursor()
+        migrations = [
+            ("trades", "price_action_type", "TEXT"),
+            ("trades", "score",             "REAL"),
+        ]
+        for table, column, col_type in migrations:
+            cur.execute(f"PRAGMA table_info({table})")
+            existing = [row[1] for row in cur.fetchall()]
+            if column not in existing:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                logger.info(f"🔧 Migration: added {table}.{column} ({col_type})")
+        self.conn.commit()
+
     # ══════════════════════════════════════════════════════════════════════════
     # COOLDOWN CACHE  (O(1) hot-path for parallel scan)
     # ══════════════════════════════════════════════════════════════════════════
@@ -355,15 +373,16 @@ class TradingDatabase:
     # ══════════════════════════════════════════════════════════════════════════
 
     def save_trade(self, symbol, side, quantity, entry_price, stop_loss, target,
-                   paper_trading=True) -> int:
+                   paper_trading=True, price_action_type=None, score=None) -> int:
         cur = self.conn.cursor()
         cur.execute('''
             INSERT INTO trades
               (symbol, side, quantity, entry_price, stop_loss, target,
-               entry_time, status, paper_trading, strategy_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, 'v4.0')
+               entry_time, status, paper_trading, strategy_version,
+               price_action_type, score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, 'v4.2', ?, ?)
         ''', (symbol, side, quantity, entry_price, stop_loss, target,
-              datetime.now(), paper_trading))
+              datetime.now(), paper_trading, price_action_type, score))
         self.conn.commit()
         return cur.lastrowid
 
