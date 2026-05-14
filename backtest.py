@@ -94,12 +94,27 @@ def simulate_trade(entry_candle_idx: int, df: pd.DataFrame, signal: dict,
     lowest       = entry_price
     entry_time   = df.index[entry_candle_idx]
 
+    entry_date = entry_time.date() if hasattr(entry_time, 'date') else entry_time
+
     for i in range(entry_candle_idx + 1, len(df)):
         candle      = df.iloc[i]
         candle_high = candle['high']
         candle_low  = candle['low']
         candle_time = df.index[i]
         hold_mins   = (candle_time - entry_time).total_seconds() / 60
+
+        # ── Session boundary: force EOD exit when crossing into next day ──
+        ct_date = candle_time.date() if hasattr(candle_time, 'date') else candle_time
+        if ct_date > entry_date:
+            exit_price = candle['open']
+            exit_pnl   = ((exit_price - entry_price) if side == 'BUY'
+                          else (entry_price - exit_price)) * quantity
+            cost = calculate_cost(entry_price, exit_price, quantity)
+            return {
+                'pnl': exit_pnl - cost, 'gross_pnl': exit_pnl, 'cost': cost,
+                'exit_reason': 'EOD', 'hold_minutes': hold_mins,
+                'max_profit': max_profit, 'exit_price': exit_price,
+            }
 
         # Update extremes
         if candle_high > highest:
