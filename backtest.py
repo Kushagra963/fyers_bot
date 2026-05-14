@@ -252,7 +252,7 @@ def backtest_symbol(symbol: str, df: pd.DataFrame, strategy) -> list:
         if window is None or len(window) < 50:
             continue
 
-        signal = strategy.generate_signal(window, symbol=symbol)
+        signal = strategy.generate_signal(window, symbol=symbol, backtest_mode=True)
         if signal is None or signal['signal'] not in ['BUY', 'SELL']:
             continue
 

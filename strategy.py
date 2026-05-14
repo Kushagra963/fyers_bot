@@ -330,18 +330,21 @@ class BeyondHumanStrategy:
         """
         return sum(1.0 for _, c in conditions if c)
     
-    def generate_signal(self, df, symbol=None):
+    def generate_signal(self, df, symbol=None, backtest_mode=False):
         """
-        Generate trading signal with bot superpowers
+        Generate trading signal with bot superpowers.
+        backtest_mode=True skips wall-clock time/cooldown checks (backtest
+        manages its own time filtering and cooldown externally).
         """
         try:
-            # CHECK 1: Time filter
-            can_trade, time_reason = self.is_good_trading_time()
-            if not can_trade:
-                return self._no_signal(df, f"⏰ {time_reason}")
-            
-            # CHECK 2: Cooldown filter (NEW - prevents repeat losses!)
-            if symbol:
+            # CHECK 1: Time filter (skipped in backtest — candle time used instead)
+            if not backtest_mode:
+                can_trade, time_reason = self.is_good_trading_time()
+                if not can_trade:
+                    return self._no_signal(df, f"⏰ {time_reason}")
+
+            # CHECK 2: Cooldown filter (skipped in backtest — managed externally)
+            if symbol and not backtest_mode:
                 in_cooldown, cooldown_reason = self.is_in_cooldown(symbol)
                 if in_cooldown:
                     return self._no_signal(df, f"❄️  {cooldown_reason}")
